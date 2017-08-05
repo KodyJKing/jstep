@@ -17,6 +17,7 @@ export class Runtime
         @nodes = []
         @states = []
         @returnsValues = [[]]
+        @returnNames = [undefined]
         @enter(@ast)
 
     properties:
@@ -54,15 +55,20 @@ export class Runtime
             get: ->
                 let returns = @returns
                 return returns[returns.length - 1]
+        
+        returnName:
+            get: -> @returnNames[@returnNames.length - 1]
+            set: (value) -> @returnNames[@returnNames.length - 1] = value
 
         checkSupport: (node) ->
             if (not Runtime.NodeTypes[node.type]?)
                 throw new Error('Unsupported node: ' + JSON.stringify(node, null, 4))
         
-        enter: (node) ->
+        enter: (node, returnName) ->
             @checkSupport(node)
             @nodes.push(node)
             @returnsValues.push([])
+            @returnNames.push(returnName)
             Runtime.NodeTypes[node.type].enter?.bind(@)(node)
 
         step: () -> Runtime.NodeTypes[@node.type].step?.bind(@)(@node)
@@ -71,7 +77,11 @@ export class Runtime
             # console.log('Returned', value)
             let node = @nodes.pop()
             @returnsValues.pop()
-            @returns.push(value)
+            if @returnName?
+                @returns[@returnName] = value
+            else
+                @returns.push(value)
+            @returnNames.pop()
             Runtime.NodeTypes[node.type].leave?.bind(@)(node)
 
     NodeTypes:
@@ -142,17 +152,16 @@ export class Runtime
                 else
                     let result = {}
                     for let i = 0; i < count; i++
-                        result[returns[i][1]] = returns[i][0]
+                        result[returns[i].key] = returns[i].value
                     @leave(result)
 
         Property:
             step: (node) ->
                 let returns = @returns
-                let count = returns.length
-                if count is 0
-                    @enter(node.value)
-                else if count is 1
-                    @enter(node.key)
+                if not returns.value?
+                    @enter(node.value, 'value')
+                else if not returns.key?
+                    @enter(node.key, 'key')
                 else
                     @leave(returns)
 
@@ -173,6 +182,30 @@ export class Runtime
                     @declare(node.id.name, @returned)
                     @leave()
 
+        
+        BinaryExpression:
+            step: (node) ->
+                let returns = @returns
+                if not returns.left?
+                    @enter(node.left, 'left')
+                else if not returns.right?
+                    @enter(node.right, 'right')
+                else
+                    @leave(Runtime.NodeTypes.BinaryExpression[node.operator](returns.left, returns.right))
+            
+            '+': (x, y) -> x + y
+            '-': (x, y) -> x - y
+            '*': (x, y) -> x * y
+            '/': (x, y) -> x / y
+            '%': (x, y) -> x % y
+            '**': (x, y) -> Math.pow(x, y)
+            '<<': (x, y) -> x << y
+            '>>': (x, y) -> x >> y
+            '>>>': (x, y) -> x >>> y
+            '&': (x, y) -> x & y
+            '^': (x, y) -> x ^ y
+            '|': (x, y) -> x | y
+
         UpdateExpression:
             enter: (node) -> # Must generalize
                 let before = @getVar(node.argument.name)
@@ -180,24 +213,22 @@ export class Runtime
                 @setVar(node.argument.name, after)
                 @leave(node.prefix ? after : before)
             
-            '++': (value) -> value + 1
-            '--': (value) -> value - 1
+            '++': (lval) -> lval + 1
+            '--': (lval) -> lval - 1
 
         AssignmentExpression:
             step: (node) ->
-                console.dir(node, {depth: null})
                 let returns = @returns
-                let count = returns.length
-                if count is 0
-                    @enter(node.right)
-                else if count is 1
-                    @enter(node.left.object)
-                else if count is 2
-                    @enter(node.left.property)
+                if not returns.rval?
+                    @enter(node.right, 'rval')
+                else if not returns.object?
+                    @enter(node.left.object, 'object')
+                else if not returns.lval?
+                    @enter(node.left.property, 'lval')
                 else
-                    let before = returns[1][returns[2]]
-                    let after = Runtime.NodeTypes.AssignmentExpression[node.operator](before, returns[0])
-                    returns[1][returns[2]] = after
+                    let before = returns.object[returns.lval]
+                    let after = Runtime.NodeTypes.AssignmentExpression[node.operator](before, returns.rval)
+                    returns.object[returns.lval] = after
                     @leave()
             
             '=': (lval, rval) -> rval
@@ -205,13 +236,21 @@ export class Runtime
             '-=': (lval, rval) -> lval - rval
             '*=': (lval, rval) -> lval * rval
             '/=': (lval, rval) -> lval / rval
+            '%=': (lval, rval) -> lval % rval
+            '**=': (lval, rval) -> Math.pow(lval, rval)
+            '<<=': (lval, rval) -> lval << rval
+            '>>=': (lval, rval) -> lval >> rval
+            '>>>=': (lval, rval) -> lval >>> rval
+            '&=': (lval, rval) -> lval & rval
+            '^=': (lval, rval) -> lval ^ rval
+            '|=': (lval, rval) -> lval | rval
 
         ScopeLookup:
             enter: (node) -> @leave(@lookup(node.name))
 
         ExpressionStatement:
             enter: (node) -> @enter(node.expression)
-            step: -> @leave(@returns[0])
+            step: -> @leave(@returned)
 
         Identifier:
             enter: (node) -> @leave(@getVar(node.name))
@@ -223,8 +262,8 @@ export class Runtime
         let runtime = new Runtime(
             globals: global
             source: ""
-                let a = {b: 2}
-                a = 4
+                let a = {b: 12}
+                a.b *= 2
                 console.log(a)
         )
         while runtime.running()

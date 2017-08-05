@@ -1,0 +1,20 @@
+{
+  "name": "jstep",
+  "version": "1.0.0",
+  "description": "Step by step JS runtime.",
+  "main": "index.js",
+  "scripts": {
+    "watch": "ion -w"
+  },
+  "dependencies": {
+    "esprima": "^4.0.0",
+    "estraverse": "^4.2.0",
+    "ion": "https://github.com/krisnye/ion.git"
+  },
+  "author": "KodyJKing",
+  "license": "MIT",
+  "directories": {
+    "src": "src",
+    "lib": "lib"
+  }
+}

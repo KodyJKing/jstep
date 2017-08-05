@@ -1,0 +1,232 @@
+const
+    esprima = import 'esprima'
+    preprocessor = import './preprocessor' 
+
+export class Runtime
+
+    constructor: (options) ->
+        @source = options.source
+        @ast = esprima.parse(@source, options.esprima)
+        @ast = preprocessor(@ast)
+        console.dir(@ast, {depth: null})
+        console.log()
+        @stack = []
+        if options.globals?
+            @stack.push(options.globals)
+        @stack.push({})        
+        @nodes = []
+        @states = []
+        @returnsValues = [[]]
+        @enter(@ast)
+
+    properties:
+
+        running: -> @nodes.length > 0
+        node:
+            get: -> @nodes[@nodes.length - 1]
+
+        lookup: (name) ->
+            for let i = @stack.length - 1; i >= 0; i--
+                if (@stack[i].hasOwnProperty(name))
+                    return @stack[i]
+        getVar: (name) -> 
+            let frame = @lookup(name)
+            if frame?
+                return frame[name]
+        setVar: (name, value) ->
+            let frame = @lookup(name)
+            if frame?
+                frame[name] = value
+        declare: (name, value) ->
+            @stack[@stack.length - 1][name] = value
+
+        pushState: (value) -> @states.push(value)
+        popState: -> @states.pop()
+
+        state:
+            get: -> @states[@states.length - 1]
+            set: (value) -> @states[@states.length - 1] = value
+
+        returns:
+            get: -> @returnsValues[@returnsValues.length - 1]
+
+        returned:
+            get: ->
+                let returns = @returns
+                return returns[returns.length - 1]
+
+        checkSupport: (node) ->
+            if (not Runtime.NodeTypes[node.type]?)
+                throw new Error('Unsupported node: ' + JSON.stringify(node, null, 4))
+        
+        enter: (node) ->
+            @checkSupport(node)
+            @nodes.push(node)
+            @returnsValues.push([])
+            Runtime.NodeTypes[node.type].enter?.bind(@)(node)
+
+        step: () -> Runtime.NodeTypes[@node.type].step?.bind(@)(@node)
+
+        leave: (value) ->
+            # console.log('Returned', value)
+            let node = @nodes.pop()
+            @returnsValues.pop()
+            @returns.push(value)
+            Runtime.NodeTypes[node.type].leave?.bind(@)(node)
+
+    NodeTypes:
+
+        Program:
+            enter: -> @pushState(0)
+            step: (node) ->
+                let index = @state
+                if index < node.body.length
+                    @state = index + 1
+                    @enter(node.body[index])
+                else
+                    return @leave()
+            leave: -> @popState()
+
+        CallExpression:
+            step: (node) ->
+                let returns = @returns
+                let index = returns.length
+                let argNum = node.arguments.length      
+                if index < argNum
+                    @enter(node.arguments[index])
+                else if index is argNum
+                    @enter(node.callee)
+                else
+                    let func = returns.pop()
+                    @leave(func.apply(null, returns))
+
+        WhileStatement:
+            enter: -> @pushState('test')
+            step: (node) ->
+                let state = @state
+                if state is 'test'
+                    @state = 'run'
+                    @enter(node.test)
+                else if @returned
+                    @state = 'test'
+                    @enter(node.body)
+                else
+                    @leave()
+        
+        MemberExpression:
+            step: (node) ->
+                let returns = @returns
+                let count = @returns.length
+                if count is 0
+                    @enter(node.object)
+                else if count is 1
+                    @enter(node.property)
+                else
+                    @leave(returns[0][returns[1]])
+
+        ArrayExpression:
+            step: (node) ->
+                let returns = @returns
+                let count = returns.length
+                if count < node.elements.length
+                    @enter(node.elements[count])
+                else
+                    @leave(returns)
+
+        ObjectExpression:
+            step: (node) ->
+                let returns = @returns
+                let count = returns.length
+                if count < node.properties.length
+                    @enter(node.properties[count])
+                else
+                    let result = {}
+                    for let i = 0; i < count; i++
+                        result[returns[i][1]] = returns[i][0]
+                    @leave(result)
+
+        Property:
+            step: (node) ->
+                let returns = @returns
+                let count = returns.length
+                if count is 0
+                    @enter(node.value)
+                else if count is 1
+                    @enter(node.key)
+                else
+                    @leave(returns)
+
+        VariableDeclaration:
+            step: (node) ->
+                let index = @returns.length
+                if index < node.declarations.length
+                    @enter(node.declarations[index])
+                else
+                    @leave()
+
+        VariableDeclarator:
+            step: (node) ->
+                let returns = @returns
+                if returns.length is 0
+                    @enter(node.init)
+                else
+                    @declare(node.id.name, @returned)
+                    @leave()
+
+        UpdateExpression:
+            enter: (node) -> # Must generalize
+                let before = @getVar(node.argument.name)
+                let after = Runtime.NodeTypes.UpdateExpression[node.operator](before)
+                @setVar(node.argument.name, after)
+                @leave(node.prefix ? after : before)
+            
+            '++': (value) -> value + 1
+            '--': (value) -> value - 1
+
+        AssignmentExpression:
+            step: (node) ->
+                console.dir(node, {depth: null})
+                let returns = @returns
+                let count = returns.length
+                if count is 0
+                    @enter(node.right)
+                else if count is 1
+                    @enter(node.left.object)
+                else if count is 2
+                    @enter(node.left.property)
+                else
+                    let before = returns[1][returns[2]]
+                    let after = Runtime.NodeTypes.AssignmentExpression[node.operator](before, returns[0])
+                    returns[1][returns[2]] = after
+                    @leave()
+            
+            '=': (lval, rval) -> rval
+            '+=': (lval, rval) -> lval + rval
+            '-=': (lval, rval) -> lval - rval
+            '*=': (lval, rval) -> lval * rval
+            '/=': (lval, rval) -> lval / rval
+
+        ScopeLookup:
+            enter: (node) -> @leave(@lookup(node.name))
+
+        ExpressionStatement:
+            enter: (node) -> @enter(node.expression)
+            step: -> @leave(@returns[0])
+
+        Identifier:
+            enter: (node) -> @leave(@getVar(node.name))
+
+        Literal:
+            enter: (node) -> @leave(node.value)    
+    
+    test: () ->
+        let runtime = new Runtime(
+            globals: global
+            source: ""
+                let a = {b: 2}
+                a = 4
+                console.log(a)
+        )
+        while runtime.running()
+            runtime.step()
+        console.log('done')

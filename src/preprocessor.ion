@@ -1,0 +1,50 @@
+const
+    ion = import 'ion'
+    estraverse = import 'estraverse'
+
+export (ast) ->
+    return estraverse.replace(
+        ast
+        {}
+            enter: (node) -> steps[node.type]?.enter?(node)
+            leave: (node) -> steps[node.type]?.leave?(node)
+    )
+
+const 
+    identifierToLiteral(node) ->
+        return {}
+            type: 'Literal'
+            value: node.name
+            loc: node.loc
+
+const identifierToMemberExpression(node) ->
+    return {}
+        type: 'MemberExpression'
+        object: {}
+            type: 'ScopeLookup'
+            name: node.name
+        property:
+            type: 'Literal'
+            value: node.name
+
+const steps = {}
+    MemberExpression:
+        leave: (node) ->
+            if node.property.type is 'Identifier'
+                let clone = ion.clone(node)
+                clone.property = identifierToLiteral(node.property)
+                return clone
+
+    Property:
+        leave: (node) ->
+            if node.key.type is 'Identifier'
+                let clone = ion.clone(node)
+                clone.key = identifierToLiteral(node.key)         
+                return clone
+
+    AssignmentExpression:
+        leave: (node) ->
+            if node.left.type is 'Identifier'
+                let clone = ion.clone(node)
+                clone.left = identifierToMemberExpression(node.left)
+                return clone

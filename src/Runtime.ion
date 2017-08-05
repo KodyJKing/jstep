@@ -8,8 +8,8 @@ export class Runtime
         @source = options.source
         @ast = esprima.parse(@source, options.esprima)
         @ast = preprocessor(@ast)
-        console.dir(@ast, {depth: null})
-        console.log()
+        # console.dir(@ast, {depth: null})
+        # console.log()
         @stack = []
         if options.globals?
             @stack.push(options.globals)
@@ -25,6 +25,10 @@ export class Runtime
         running: -> @nodes.length > 0
         node:
             get: -> @nodes[@nodes.length - 1]
+        type:
+            get: -> Runtime.NodeTypes[@node?.type]
+        acceptReturns:
+            get: -> @type?.acceptReturns isnt false
 
         lookup: (name) ->
             for let i = @stack.length - 1; i >= 0; i--
@@ -67,20 +71,22 @@ export class Runtime
         enter: (node, returnName) ->
             @checkSupport(node)
             @nodes.push(node)
-            @returnsValues.push([])
-            @returnNames.push(returnName)
+            if @acceptReturns
+                @returnsValues.push([])
+                @returnNames.push(returnName)
             Runtime.NodeTypes[node.type].enter?.bind(@)(node)
 
         step: () -> Runtime.NodeTypes[@node.type].step?.bind(@)(@node)
 
         leave: (value) ->
-            # console.log('Returned', value)
+            if @acceptReturns
+                @returnsValues.pop()
             let node = @nodes.pop()
-            @returnsValues.pop()
-            if @returnName?
-                @returns[@returnName] = value
-            else
-                @returns.push(value)
+            if @acceptReturns
+                if @returnName?
+                    @returns[@returnName] = value
+                else
+                    @returns.push(value)
             @returnNames.pop()
             Runtime.NodeTypes[node.type].leave?.bind(@)(node)
 
@@ -176,10 +182,10 @@ export class Runtime
         VariableDeclarator:
             step: (node) ->
                 let returns = @returns
-                if returns.length is 0
-                    @enter(node.init)
+                if not returns.init?
+                    @enter(node.init, 'init')
                 else
-                    @declare(node.id.name, @returned)
+                    @declare(node.id.name, returns.init)
                     @leave()
 
         
@@ -207,7 +213,7 @@ export class Runtime
             '|': (x, y) -> x | y
 
         UpdateExpression:
-            enter: (node) -> # Must generalize
+            enter: (node) -> # Must generalize to MemberExpressions
                 let before = @getVar(node.argument.name)
                 let after = Runtime.NodeTypes.UpdateExpression[node.operator](before)
                 @setVar(node.argument.name, after)
@@ -259,13 +265,15 @@ export class Runtime
             enter: (node) -> @leave(node.value)    
     
     test: () ->
+
         let runtime = new Runtime(
             globals: global
             source: ""
                 let a = {b: 12}
                 a.b *= 2
+                a['b'] += 2
                 console.log(a)
         )
+
         while runtime.running()
             runtime.step()
-        console.log('done')

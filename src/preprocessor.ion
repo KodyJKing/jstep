@@ -48,3 +48,5 @@ const steps = {}
                 let clone = ion.clone(node)
                 clone.left = identifierToMemberExpression(node.left)
                 return clone
+    
+    # TODO: apply identifierToMemberExpression to UpdateExpression

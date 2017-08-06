@@ -8,8 +8,8 @@ export class Runtime
         @source = options.source
         @ast = esprima.parse(@source, options.esprima)
         @ast = preprocessor(@ast)
-        # console.dir(@ast, {depth: null})
-        # console.log()
+        console.dir(@ast, {depth: null})
+        console.log()
         @stack = []
         if options.globals?
             @stack.push(options.globals)
@@ -44,6 +44,9 @@ export class Runtime
                 frame[name] = value
         declare: (name, value) ->
             @stack[@stack.length - 1][name] = value
+
+        pushStack: (value) -> @stack.push(value)
+        popStack: -> @stack.pop()
 
         pushState: (value) -> @states.push(value)
         popState: -> @states.pop()
@@ -92,8 +95,10 @@ export class Runtime
 
     NodeTypes:
 
-        Program:
-            enter: -> @pushState(0)
+        BlockStatement:
+            enter: -> 
+                @pushState(0)
+                @pushStack({})
             step: (node) ->
                 let index = @state
                 if index < node.body.length
@@ -101,7 +106,9 @@ export class Runtime
                     @enter(node.body[index])
                 else
                     return @leave()
-            leave: -> @popState()
+            leave: -> 
+                @popState()
+                @popStack()                
 
         CallExpression:
             step: (node) ->
@@ -114,31 +121,44 @@ export class Runtime
                     @enter(node.callee)
                 else
                     let func = returns.pop()
-                    @leave(func.apply(null, returns))
+                    @leave(func.apply(null, returns))         
 
-        WhileStatement:
-            enter: -> @pushState('test')
+        ForStatement:
+            enter: -> @pushState('init')
             step: (node) ->
                 let state = @state
+
+                if state is 'init'
+                    @state = 'test'
+                    if node.init?
+                        return @enter(node.init)
+
+                if state is 'update'
+                    @state = 'test'
+                    if node.update?
+                        return @enter(node.update)
+
                 if state is 'test'
                     @state = 'run'
-                    @enter(node.test)
-                else if @returned
-                    @state = 'test'
-                    @enter(node.body)
-                else
-                    @leave()
+                    return @enter(node.test)
+                else if state is 'run'
+                    @state = 'update'
+                    if not @returned
+                        return @leave()
+                    else
+                        @enter(node.body)
+            leave: -> @popState()            
         
         MemberExpression:
             step: (node) ->
                 let returns = @returns
                 let count = @returns.length
-                if count is 0
-                    @enter(node.object)
-                else if count is 1
-                    @enter(node.property)
+                if not returns.object
+                    @enter(node.object, 'object')
+                else if not returns.property
+                    @enter(node.property, 'property')
                 else
-                    @leave(returns[0][returns[1]])
+                    @leave(returns.object[returns.property])
 
         ArrayExpression:
             step: (node) ->
@@ -211,13 +231,23 @@ export class Runtime
             '&': (x, y) -> x & y
             '^': (x, y) -> x ^ y
             '|': (x, y) -> x | y
+            '<': (x, y) -> x < y
+            '>': (x, y) -> x > y
+            '>=': (x, y) -> x >= y
+            '<=': (x, y) -> x <= y
+            '==': (x, y) -> x is y
 
         UpdateExpression:
-            enter: (node) -> # Must generalize to MemberExpressions
-                let before = @getVar(node.argument.name)
-                let after = Runtime.NodeTypes.UpdateExpression[node.operator](before)
-                @setVar(node.argument.name, after)
-                @leave(node.prefix ? after : before)
+                let returns = @returns
+                if not returns.object
+                    @enter(node.argument.object, 'object')
+                else if not returns.property
+                    @enter(node.argument.property, 'property')
+                else                    
+                    let before = returns.object[returns.property]
+                    let after = Runtime.NodeTypes.UpdateExpression[node.operator](before)
+                    returns.object[returns.property] = after
+                    @leave(node.prefix ? after : before)
             
             '++': (lval) -> lval + 1
             '--': (lval) -> lval - 1
@@ -269,10 +299,8 @@ export class Runtime
         let runtime = new Runtime(
             globals: global
             source: ""
-                let a = {b: 12}
-                a.b *= 2
-                a['b'] += 2
-                console.log(a)
+                for (let i = 0; i < 10; i++)
+                    console.log(i)
         )
 
         while runtime.running()

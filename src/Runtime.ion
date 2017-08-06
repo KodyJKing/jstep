@@ -8,8 +8,8 @@ export class Runtime
         @source = options.source
         @ast = esprima.parse(@source, options.esprima)
         @ast = preprocessor(@ast)
-        console.dir(@ast, {depth: null})
-        console.log()
+        # console.dir(@ast, {depth: null})
+        # console.log()
         @stack = []
         if options.globals?
             @stack.push(options.globals)

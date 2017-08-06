@@ -238,6 +238,7 @@ export class Runtime
             '==': (x, y) -> x is y
 
         UpdateExpression:
+            step: (node) ->
                 let returns = @returns
                 if not returns.object
                     @enter(node.argument.object, 'object')

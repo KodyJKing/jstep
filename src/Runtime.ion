@@ -12,8 +12,7 @@ export class Runtime
         # console.log()
         @stack = []
         if options.globals?
-            @stack.push(options.globals)
-        @stack.push({})        
+            @stack.push(options.globals)      
         @nodes = []
         @states = []
         @returnsValues = [[]]
@@ -96,6 +95,7 @@ export class Runtime
     NodeTypes:
 
         BlockStatement:
+            acceptReturns: false
             enter: -> 
                 @pushState(0)
                 @pushStack({})
@@ -191,7 +191,7 @@ export class Runtime
                 else
                     @leave(returns)
 
-        VariableDeclaration:
+        VariableDeclaration:     
             step: (node) ->
                 let index = @returns.length
                 if index < node.declarations.length
@@ -300,8 +300,10 @@ export class Runtime
         let runtime = new Runtime(
             globals: global
             source: ""
-                for (let i = 0; i < 10; i++)
-                    console.log(i)
+                for (let i = 0; i < 1000; i++) {
+                    let j = i % 7
+                    console.log(j)
+                }
         )
 
         while runtime.running()

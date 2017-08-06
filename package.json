@@ -4,6 +4,7 @@
   "description": "Step by step JS runtime.",
   "main": "index.js",
   "scripts": {
+    "dev": "yarn install",
     "watch": "ion -w"
   },
   "dependencies": {

@@ -19,13 +19,16 @@ export class Runtime
         @returnNames = [undefined]
         @enter(@ast)
 
+    typeOf: (node) ->
+        return Runtime.NodeTypes[node?.jstepType ? node?.type]
+
     properties:
 
         running: -> @nodes.length > 0
         node:
             get: -> @nodes[@nodes.length - 1]
         type:
-            get: -> Runtime.NodeTypes[@node?.type]
+            get: -> Runtime.typeOf(@node)
         acceptReturns:
             get: -> @type?.acceptReturns isnt false
 
@@ -46,6 +49,8 @@ export class Runtime
 
         pushStack: (value) -> @stack.push(value)
         popStack: -> @stack.pop()
+        localScope:
+            get: -> @stack[@stack.length - 1]
 
         pushState: (value) -> @states.push(value)
         popState: -> @states.pop()
@@ -67,7 +72,7 @@ export class Runtime
             set: (value) -> @returnNames[@returnNames.length - 1] = value
 
         checkSupport: (node) ->
-            if (not Runtime.NodeTypes[node.type]?)
+            if (not Runtime.typeOf(node)?)
                 throw new Error('Unsupported node: ' + JSON.stringify(node, null, 4))
         
         enter: (node, returnName) ->
@@ -76,9 +81,9 @@ export class Runtime
             if @acceptReturns
                 @returnsValues.push([])
                 @returnNames.push(returnName)
-            Runtime.NodeTypes[node.type].enter?.bind(@)(node)
+            Runtime.typeOf(node).enter?.bind(@)(node)
 
-        step: () -> Runtime.NodeTypes[@node.type].step?.bind(@)(@node)
+        step: () -> @type.step?.bind(@)(@node)
 
         leave: (value) ->
             if @acceptReturns
@@ -90,15 +95,15 @@ export class Runtime
                 else
                     @returns.push(value)
             @returnNames.pop()
-            Runtime.NodeTypes[node.type].leave?.bind(@)(node)
+            Runtime.typeOf(node).leave?.bind(@)(node)
 
     NodeTypes:
 
         BlockStatement:
             acceptReturns: false
-            enter: -> 
+            enter: (node) -> 
                 @pushState(0)
-                @pushStack({})
+                @pushStack(node.static ? {})
             step: (node) ->
                 let index = @state
                 if index < node.body.length
@@ -111,17 +116,31 @@ export class Runtime
                 @popStack()                
 
         CallExpression:
+            enter: -> @pushState('calling')
             step: (node) ->
-                let returns = @returns
-                let index = returns.length
-                let argNum = node.arguments.length      
-                if index < argNum
-                    @enter(node.arguments[index])
-                else if index is argNum
-                    @enter(node.callee)
+                if @state is 'calling'
+                    let returns = @returns
+                    let index = returns.length
+                    let argNum = node.arguments.length      
+                    if index < argNum
+                        @enter(node.arguments[index])
+                    else if index is argNum
+                        @enter(node.callee)
+                    else
+                        let func = returns.pop()
+                        if typeof func is 'function' # non interpreted function, we can bail out right now
+                            @leave(func.apply(null, returns))
+                        else
+                            @state = 'called'
+                            @enter(func.body)
+                            let callScope = @localScope
+                            for let i = 0; i < node.arguments.length; i++
+                                if not func.params[i]?
+                                    break
+                                callScope[func.params[i].name] = returns[i]
                 else
-                    let func = returns.pop()
-                    @leave(func.apply(null, returns))         
+                    @leave(@returned)
+            leave: -> @popState()
 
         ForStatement:
             enter: -> @pushState('init')
@@ -147,7 +166,22 @@ export class Runtime
                         return @leave()
                     else
                         @enter(node.body)
-            leave: -> @popState()            
+            leave: -> @popState()
+
+        IfStatement:
+            step: (node) ->
+                let returns = @returns
+                if not returns.test?
+                    @enter(node.test, 'test')
+                else
+                    if returns.length >= 1
+                        @leave()
+                    else if returns.test
+                        @enter(node.consequent)
+                    else if node.alternate?
+                        @enter(node.alternate)
+                    else
+                        @leave()
         
         MemberExpression:
             step: (node) ->
@@ -191,13 +225,17 @@ export class Runtime
                 else
                     @leave(returns)
 
-        VariableDeclaration:     
+        VariableDeclaration:
+            acceptReturns: false
+            enter: -> @pushState(0)      
             step: (node) ->
-                let index = @returns.length
+                let index = @state
+                @state = index + 1
                 if index < node.declarations.length
                     @enter(node.declarations[index])
                 else
                     @leave()
+            leave: -> @popState()
 
         VariableDeclarator:
             step: (node) ->
@@ -300,9 +338,14 @@ export class Runtime
         let runtime = new Runtime(
             globals: global
             source: ""
-                for (let i = 0; i < 1000; i++) {
-                    let j = i % 7
-                    console.log(j)
+                if (true) {
+                    function foo(a, b) { 
+                        console.log(a)
+                        console.log(b)
+                        if ( a == 'foo')
+                            foo('bar', 'qux')
+                    }
+                    foo('foo', 'bar')
                 }
         )
 

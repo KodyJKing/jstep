@@ -1,21 +1,19 @@
 {
   "name": "jstep",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Step by step JS runtime.",
   "main": "index.js",
   "scripts": {
     "dev": "yarn install",
-    "watch": "ion -w"
+    "watch": "tsc -w",
+    "test": "ava --watch --verbose"
   },
   "dependencies": {
-    "esprima": "^4.0.0",
-    "estraverse": "^4.2.0",
-    "ion": "https://github.com/krisnye/ion.git"
+    "esprima": "^4.0.1",
+    "estraverse": "^5.0.0",
+    "escodegen": "^1.14.1",
+    "ava": "^3.6.0"
   },
   "author": "KodyJKing",
-  "license": "MIT",
-  "directories": {
-    "src": "src",
-    "lib": "lib"
-  }
+  "license": "MIT"
 }

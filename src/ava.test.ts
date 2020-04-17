@@ -4,6 +4,7 @@ import ava from "ava"
 // import * as estraverse from "estraverse"
 import * as esprima from "esprima"
 import ionStringify from "./ionStringify"
+import inspect from "./inspect"
 
 function objectMap<T>( args: ( string | number )[], map: ( arg: string | number ) => T ) {
     let result: { [ name: string ]: T } = {}
@@ -12,41 +13,58 @@ function objectMap<T>( args: ( string | number )[], map: ( arg: string | number 
     return result
 }
 
-const unaryOperators = objectMap(
-    "!, ~".split( "," ).map( s => s.trim() ),
-    op => new Function( "a", " return " + op + "a " )
-)
+function splitTrim( str ) {
+    return str.split( "," ).map( s => s.trim() )
+}
+
+const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
 const binaryOperators = objectMap(
-    " >, <, +, -, ==, *, /, %, ^, |, &, <<, >>".split( "," ).map( s => s.trim() ),
+    splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
     op => new Function( "a", "b", " return a " + op + " b " )
+)
+const assignmentOperators = objectMap(
+    splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
+    op => new Function( "array", "index", "rightOperand", "array[index] " + op + " rightOperand" )
 )
 
 const source0 = `
-{
-    // let a = 10
-    // console.log(a)
-    // a = a + 1
-    // console.log(a)
-    for (let i = 0; i < 10; i = i + 1) {
-        console.log(i)
-    }
-}
+for (let i = 0; i < 10; i = i + 1) 
+    console.log(i)
+console.log("Hello VM!")
 `
 
-function compile( ast ) {
+function compile( ast, globals: any ) {
     let program: any[] = []
 
     let stackSize = 0
-    const scopeStack: any[] = [ {} ]
-    const peekScope = () => scopeStack[ scopeStack.length - 1 ]
-    const pushScope = () => scopeStack.push( Object.assign( {}, peekScope() ) )
-    const declare = ( name ) => peekScope()[ name ] = stackSize
-    const popScope = () => stackSize -= Object.keys( peekScope() ).length
+    const scopes: any[] = [ {} ]
+    const peekScope = () => scopes[ scopes.length - 1 ]
+    const pushScope = () => scopes.push( {} )
+    const popScope = () => {
+        let scope = scopes.pop()
+        let localScopeSize = Object.keys( scope ).length
+        if ( localScopeSize > 0 )
+            addInstruction( {
+                type: "Pop",
+                n: localScopeSize,
+            }, 0, localScopeSize )
+    }
+    const declare = name => peekScope()[ name ] = stackSize
+    const lookup = name => {
+        for ( let i = scopes.length - 1; i >= 0; i-- ) {
+            let scope = scopes[ i ]
+            let index = scope[ name ]
+            if ( index != undefined )
+                return index
+        }
+        return -1
+    }
+
 
     const addInstruction = ( node, pushes = 1, pops = 0 ) => {
         program.push( node )
         stackSize += pushes - pops
-        node.stackSize = stackSize
+        // node.stackSize = stackSize
         delete node.raw
     }
 
@@ -54,8 +72,7 @@ function compile( ast ) {
         Program: node => handlers.BlockStatement( node ),
         BlockStatement: node => {
             pushScope()
-            for ( let child of node.body )
-                compile( child )
+            node.body.map( compile )
             popScope()
         },
         VariableDeclaration: node => {
@@ -66,12 +83,15 @@ function compile( ast ) {
         },
         Literal: node => { addInstruction( node ) },
         Identifier: node => {
-            let stackIndex = peekScope()[ node.name ]
-            if ( stackIndex == undefined ) {
-                addInstruction( {
-                    type: "GlobalReference",
-                    name: node.name
-                } )
+            let stackIndex = lookup( node.name )
+            if ( stackIndex < 0 ) {
+                if ( globals[ node.name ] )
+                    addInstruction( {
+                        type: "GlobalReference",
+                        name: node.name
+                    } )
+                else
+                    throw new Error( "Identifier " + node.name + " not defined in scope." )
             } else {
                 addInstruction( {
                     type: "StackReference",
@@ -82,7 +102,8 @@ function compile( ast ) {
         ExpressionStatement: node => {
             compile( node.expression )
             if ( node.expression.type != "AssignmentExpression" )
-                addInstruction( { type: "Pop" }, 0, 1 )
+                addInstruction( { type: "Pop", n: 1 }, 0, 1 )
+            addInstruction( { type: "Nop" }, 0, 0 )
         },
         CallExpression: node => {
             node.arguments.map( compile )
@@ -104,7 +125,6 @@ function compile( ast ) {
             }, 1, 2 )
         },
         BinaryExpression: node => {
-            if ( node.operator == "+" ) console.log( { stackSize } )
             compile( node.left )
             compile( node.right )
             addInstruction( {
@@ -117,11 +137,15 @@ function compile( ast ) {
             compile( node.init )
             let testPos = program.length
             compile( node.test )
+            addInstruction( { type: "Nop" }, 0, 0 )
+
             let exitJumpPos = program.length
             let exitJump = { type: "JumpFalse", offset: 0 }
             addInstruction( exitJump, 0, 1 )
             compile( node.body )
             compile( node.update )
+            addInstruction( { type: "Nop" }, 0, 0 )
+
             addInstruction( {
                 type: "Jump",
                 offset: testPos - program.length
@@ -131,12 +155,22 @@ function compile( ast ) {
         },
         AssignmentExpression: node => {
             compile( node.right )
-            let stackIndex = peekScope()[ node.left.name ]
+            let stackIndex = lookup( node.left.name )
+            // inspect()
             addInstruction( {
                 type: "Assign",
-                offset: stackIndex - stackSize
+                offset: stackIndex - stackSize + 1,
+                operator: node.operator
             }, 0, 1 )
-        }
+        },
+        // UpdateExpression: node => {
+        //     let operator = node.operator[ 0 ] + "="
+        //     compile( {
+        //         type: "AssignmentExpression",
+        //         right: node.argument,
+        //         operator
+        //     })
+        // }
     }
 
     function compile( node ) {
@@ -150,7 +184,7 @@ function compile( ast ) {
     return program
 }
 
-function execute( program, globals = { console } ) {
+function execute( program, globals: any ) {
     let stack: any[] = []
     let instructionCounter = 0
 
@@ -185,22 +219,22 @@ function execute( program, globals = { console } ) {
             if ( !test ) instructionCounter += node.offset - 1
         },
         Assign: node => {
-            stack[ stack.length + node.offset ] = stack.pop()
+            let index = stack.length + node.offset
+            assignmentOperators[ node.operator ]( stack, index, stack.pop() )
+            // stack[ stack.length + node.offset ] = stack.pop()
         },
         Pop: node => {
-            stack.pop()
-        }
+            stack.length -= node.n
+        },
+        Nop: node => { }
     }
 
     while ( true ) {
         let node = program[ instructionCounter++ ]
         if ( !node ) break
-        console.log( "#" + instructionCounter + " " + JSON.stringify( node ).replace( /[{}"]/g, "" ).replace( /,/g, ", " ).replace( /:/g, ": " ) )
         let handler = handlers[ node.type ]
         if ( handler ) handler( node )
         else throw new Error( "Missing execute handler for type: " + node.type )
-        console.log( JSON.stringify( stack ) )
-        console.log()
     }
 }
 
@@ -210,10 +244,22 @@ test(
         let ast = esprima.parse( source0 )
         console.log( "AST: " + ionStringify( ast ) )
         console.log()
-        let program = compile( ast )
-        console.log( "Program: " + ionStringify( program ) )
+        let globals = { console }
+        let program = compile( ast, globals )
+        // console.log( "Program: " + ionStringify( program ) )
+        for ( let node of program ) {
+            if ( node.type == "Nop" ) {
+                console.log()
+                continue
+            }
+            console.log(
+                Object.values( node )
+                    .map( ( e, i ) => i == 0 ? e : JSON.stringify( e ) )
+                    .join( " " )
+            )
+        }
         console.log()
-        execute( program )
+        execute( program, globals )
         t.pass()
     }
 )

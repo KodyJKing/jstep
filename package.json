@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "yarn install",
     "watch": "tsc -w",
-    "test": "ava --watch --verbose"
+    "test": "ava --watch --verbose --timeout=60m"
   },
   "dependencies": {
     "esprima": "^4.0.1",

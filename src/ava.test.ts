@@ -27,13 +27,11 @@ const assignmentOperators = objectMap(
     op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
 )
 
-const source0 = `
-let j = 100
-for (let i = 0; i < 10; i++) {
-    console.log(j)
-    j--
-}
-console.log("Hello VM!")
+let source0 = `
+    console.log( "Hello VM!" )
+    let j = 100
+    for ( let i = 0; i < 10; i++ )
+        console.log( j-- )
 `
 
 function compile( ast, globals: any ) {
@@ -68,14 +66,7 @@ function compile( ast, globals: any ) {
         } ),
         ExpressionStatement: node => {
             compile( node.expression )
-            switch ( node.expression.type ) {
-                case "AssignmentExpression":
-                case "UpdateExpression":
-                    break;
-                default:
-                    addInstruction( { type: "Pop", n: 1 } )
-                    break;
-            }
+            addInstruction( { type: "Pop", n: 1 } )
             line++
         },
         CallExpression: node => {
@@ -118,6 +109,7 @@ function compile( ast, globals: any ) {
 
             compile( node.body )
             compile( node.update )
+            addInstruction( { type: "Pop", n: 1 } )
             line++
 
             addInstruction( {
@@ -165,6 +157,7 @@ function compile( ast, globals: any ) {
 function execute( program, globals: any ) {
     let stack: any[] = []
     let instructionCounter = 0
+    const popArgs = count => stack.splice( stack.length - count )
 
     let scopes: any[] = [ globals ]
     const peekScope = () => scopes[ scopes.length - 1 ]
@@ -177,9 +170,6 @@ function execute( program, globals: any ) {
         }
         return undefined
     }
-
-    const popArgs = count => stack.splice( stack.length - count )
-    const peekStack = ( offset = -1 ) => stack[ stack.length + offset ]
 
     const handlers = {
         Literal: node => stack.push( node.value ),
@@ -213,6 +203,7 @@ function execute( program, globals: any ) {
                 let value = scope[ name ]
                 if ( value != undefined ) {
                     assignmentOperators[ node.operator ]( scope, name, stack.pop() )
+                    stack.push( scope[ name ] )
                     return
                 }
             }
@@ -229,7 +220,11 @@ function execute( program, globals: any ) {
 
     while ( true ) {
         let node = program[ instructionCounter++ ]
-        if ( !node ) break
+        if ( !node ) {
+            // console.log( "\nProgram terminated." )
+            // console.log( { stack, scopes } )
+            return
+        }
         let handler = handlers[ node.type ]
         if ( handler ) handler( node )
         else throw new Error( "Missing execute handler for type: " + node.type )
@@ -240,7 +235,7 @@ function printProgram( program ) {
     let dent: string[] = []
     let lines: string[] = []
     let lastLineNum = 0
-    let i = 0
+    let instructionNum = 0
     for ( let node of program ) {
         let line = node.line
         delete node.line
@@ -253,13 +248,14 @@ function printProgram( program ) {
             dent.pop()
 
         lines.push(
-            dent.join( "" ) + ( i++ ) + ": " + Object.values( node )
+            dent.join( "" ) + ( instructionNum++ ) + ": " +
+            Object.values( node )
                 .map( ( e, i ) => i == 0 ? e : JSON.stringify( e ) )
                 .join( " " )
         )
 
         if ( node.type == "PushScope" )
-            dent.push( "  " )
+            dent.push( "    " )
     }
 
     console.log( lines.join( "\n" ) )
@@ -269,7 +265,7 @@ test(
     "main",
     t => {
         let ast = esprima.parse( source0 )
-        // console.log( "AST: " + ionStringify( ast ) )
+        console.log( "AST: " + ionStringify( ast ) )
         console.log()
         let globals = { console }
         let program = compile( ast, globals )

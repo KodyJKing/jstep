@@ -1,7 +1,4 @@
 import test from "ava"
-import ava from "ava"
-// import * as escodegen from "escodegen"
-// import * as estraverse from "estraverse"
 import * as esprima from "esprima"
 import ionStringify from "./ionStringify"
 import inspect from "./inspect"
@@ -189,9 +186,7 @@ function execute( program, globals: any ) {
             let op = binaryOperators[ node.operator ]
             stack.push( op( a, b ) )
         },
-        Jump: node => {
-            instructionCounter += node.offset - 1
-        },
+        Jump: node => { instructionCounter += node.offset - 1 },
         JumpFalse: node => {
             let test = stack.pop()
             if ( !test ) instructionCounter += node.offset - 1
@@ -208,11 +203,8 @@ function execute( program, globals: any ) {
                 }
             }
         },
-        Declare: node => {
-            peekScope()[ node.name ] = stack.pop()
-        },
+        Declare: node => { peekScope()[ node.name ] = stack.pop() },
         Pop: node => { stack.length -= node.n },
-        Nop: node => { },
         Load: node => stack.push( lookup( node.name ) ),
         PushScope: node => scopes.push( {} ),
         PopScope: node => scopes.pop()

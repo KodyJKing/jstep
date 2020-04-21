@@ -24,11 +24,26 @@ const assignmentOperators = objectMap(
     op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
 )
 
-let source0 = `
-    console.log( "Hello VM!" )
+let source1 = `
+    function print(a) { 
+        console.log(a) 
+    }
+    print( "Hello VM!" )
     let j = 100
     for ( let i = 0; i < 10; i++ )
-        console.log( j-- )
+        print( j-- )
+`
+
+let source0 = `
+    function foo() {
+        function bar(a) {
+            console.log(a)
+        }
+        return bar
+    }
+    let b = foo()
+    console.log(b)
+    b("What?")
 `
 
 function compile( ast, globals: any ) {
@@ -46,7 +61,7 @@ function compile( ast, globals: any ) {
         Program: node => handlers.BlockStatement( node ),
         BlockStatement: node => {
             addInstruction( { type: "PushScope" } )
-            node.body.map( compile )
+            node.body.forEach( compile )
             addInstruction( { type: "PopScope" } )
         },
         VariableDeclaration: node => {
@@ -55,6 +70,30 @@ function compile( ast, globals: any ) {
                 addInstruction( { type: "Declare", name: declaration.id.name } )
             }
             line++
+        },
+        FunctionDeclaration: node => {
+            let jump = { type: "Jump", target: 0 }
+            addInstruction( jump )
+            let pos = program.length
+            addInstruction( { type: "PushScope" } )
+            for ( let param of node.params.reverse() )
+                addInstruction( { type: "Declare", name: param.name } )
+            let body = node.body.body
+            body.forEach( compile )
+            let last = body[ body.length - 1 ]
+            if ( last.type != "ReturnStatement" ) compile( { type: "ReturnStatement" } )
+            addInstruction( { type: "PopScope" } )
+            jump.target = program.length
+            addInstruction( { type: "Literal", value: pos } )
+            addInstruction( { type: "Declare", name: node.id.name } )
+            line++
+        },
+        ReturnStatement: node => {
+            if ( node.argument )
+                compile( node.argument )
+            else
+                compile( { type: "Literal", value: undefined } )
+            addInstruction( { type: "Return" } )
         },
         Literal: node => addInstruction( node ),
         Identifier: node => addInstruction( {
@@ -67,7 +106,7 @@ function compile( ast, globals: any ) {
             line++
         },
         CallExpression: node => {
-            node.arguments.map( compile )
+            node.arguments.forEach( compile )
             compile( node.callee )
             let argumentCount = node.arguments.length
             addInstruction( {
@@ -99,8 +138,7 @@ function compile( ast, globals: any ) {
             let testPos = program.length
             compile( node.test )
 
-            let exitJumpPos = program.length
-            let exitJump = { type: "JumpFalse", offset: 0 }
+            let exitJump = { type: "JumpFalse", target: 0 }
             addInstruction( exitJump )
             line++
 
@@ -111,9 +149,9 @@ function compile( ast, globals: any ) {
 
             addInstruction( {
                 type: "Jump",
-                offset: testPos - program.length
+                target: testPos
             } )
-            exitJump.offset = program.length - exitJumpPos
+            exitJump.target = program.length
             addInstruction( { type: "PopScope" } )
             line++
         },
@@ -153,6 +191,7 @@ function compile( ast, globals: any ) {
 
 function execute( program, globals: any ) {
     let stack: any[] = []
+    let returnAddresses: number[] = []
     let instructionCounter = 0
     const popArgs = count => stack.splice( stack.length - count )
 
@@ -172,8 +211,17 @@ function execute( program, globals: any ) {
         Literal: node => stack.push( node.value ),
         Call: node => {
             let callee = stack.pop()
-            let args = popArgs( node.argumentCount )
-            stack.push( callee.call( null, ...args ) )
+            if ( typeof callee == "function" ) {
+                let args = popArgs( node.argumentCount )
+                stack.push( callee.call( null, ...args ) )
+            } else {
+                returnAddresses.push( instructionCounter )
+                instructionCounter = callee
+            }
+        },
+        Return: node => {
+            scopes.pop()
+            instructionCounter = returnAddresses.pop() as number
         },
         Member: node => {
             let property = stack.pop()
@@ -186,10 +234,10 @@ function execute( program, globals: any ) {
             let op = binaryOperators[ node.operator ]
             stack.push( op( a, b ) )
         },
-        Jump: node => { instructionCounter += node.offset - 1 },
+        Jump: node => { instructionCounter = node.target },
         JumpFalse: node => {
             let test = stack.pop()
-            if ( !test ) instructionCounter += node.offset - 1
+            if ( !test ) instructionCounter = node.target
         },
         Assign: node => {
             let name = node.name
@@ -228,19 +276,21 @@ function printProgram( program ) {
     let lines: string[] = []
     let lastLineNum = 0
     let instructionNum = 0
+    let toggle = true
     for ( let node of program ) {
         let line = node.line
         delete node.line
         if ( lastLineNum != line ) {
             lastLineNum = line
             lines.push( "" )
+            toggle = !toggle
         }
 
         if ( node.type == "PopScope" )
             dent.pop()
 
         lines.push(
-            dent.join( "" ) + ( instructionNum++ ) + ": " +
+            ( instructionNum++ + ": " ).padEnd( 4 ) + dent.join( "" ) +
             Object.values( node )
                 .map( ( e, i ) => i == 0 ? e : JSON.stringify( e ) )
                 .join( " " )

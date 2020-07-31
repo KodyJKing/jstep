@@ -29,9 +29,29 @@ export function compile( ast, globals: any ) {
     // =============================
 
     function compileBlock( node ) {
-        addInstruction( { type: "PushScope" } )
+        addInstruction( { type: "PushScope", child: true } )
         node.body.forEach( compile )
         addInstruction( { type: "PopScope" } )
+    }
+
+    function compileFunctionExpression( node ) {
+        // Jump past body declaration.
+        let bodyEndLabel = createLabel()
+        addJumpInstruction( { type: "Jump" }, bodyEndLabel )
+
+        // Add function body
+        let pos = program.length
+        for ( let param of node.params.reverse() )
+            addInstruction( { type: "Declare", name: param.name } )
+        let body = node.body.body
+        body.forEach( compile )
+        let last = body[ body.length - 1 ]
+        if ( !last || last.type != "ReturnStatement" )
+            compile( { type: "ReturnStatement" } )
+
+        addLabel( bodyEndLabel )
+
+        addInstruction( { type: "CreateClosure", address: pos } )
     }
 
     const compileHandler = switchFunc( {
@@ -47,27 +67,13 @@ export function compile( ast, globals: any ) {
         },
 
         FunctionDeclaration: node => {
-            // Jump past body declaration.
-            let bodyEndLabel = createLabel()
-            addJumpInstruction( { type: "Jump" }, bodyEndLabel )
-
-            // Add function body
-            let pos = program.length
-            addInstruction( { type: "PushScope" } )
-            for ( let param of node.params.reverse() )
-                addInstruction( { type: "Declare", name: param.name } )
-            let body = node.body.body
-            body.forEach( compile )
-            let last = body[ body.length - 1 ]
-            if ( last.type != "ReturnStatement" )
-                compile( { type: "ReturnStatement" } )
-            addInstruction( { type: "PopScope" } )
-
-            addLabel( bodyEndLabel )
-
-            // Record the function's location under it's name.
-            addInstruction( { type: "Literal", value: pos } )
+            compileFunctionExpression( node )
             addInstruction( { type: "Declare", name: node.id.name } )
+            line++
+        },
+
+        FunctionExpression: node => {
+            compileFunctionExpression( node )
             line++
         },
 
@@ -135,7 +141,7 @@ export function compile( ast, globals: any ) {
         },
 
         ForStatement: node => {
-            addInstruction( { type: "PushScope" } )
+            addInstruction( { type: "PushScope", child: true } )
             compile( node.init )
             let testPos = program.length
             compile( node.test )
@@ -163,7 +169,8 @@ export function compile( ast, globals: any ) {
             addInstruction( {
                 type: "Assign",
                 name: node.left.name,
-                operator: node.operator
+                operator: node.operator,
+                prefix: node.prefix
             } )
         },
 
@@ -176,7 +183,8 @@ export function compile( ast, globals: any ) {
                     type: "Literal",
                     value: 1
                 },
-                operator
+                operator,
+                prefix: node.prefix
             } )
         },
 

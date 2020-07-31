@@ -6,26 +6,32 @@ import { compile } from "./compile"
 import { execute } from "./execute"
 
 let source = `
+    // Internal functions
     // function print(a) { 
     //     console.log(a) 
     // }
     // print( "Hello VM!" )
+
+    // For loops
     // let j = 100
     // for ( let i = 0; i < 10; i++ )
-    //     print( j-- )
+    //     console.log( j-- )
 
-    function foo() {
-        function bar(a) {
-            return 42
-        }
-        return bar
-    }
-    let b = foo()
-    console.log(b())
-
+    // Ternary Expressions
     // let b = 10 > 9
     // let a = b ? 1 : 0
     // console.log(a)
+
+    // Closures
+    function getClosure() {
+        let hidden = 42
+        return function closure() {
+            return hidden--
+        }
+    }
+    let counter = getClosure()
+    for (let i = 0; i < 10; i++)
+        console.log(counter())
 `
 
 function printProgram( program ) {
@@ -46,10 +52,18 @@ function printProgram( program ) {
         if ( node.type == "PopScope" )
             dent.pop()
 
+        function propToString( k, v, i ) {
+            if ( i == 0 ) return v
+            if ( typeof v == "boolean" )
+                return v ? k : "!" + k
+            return v
+        }
+
+        let keys = Object.keys( node )
         lines.push(
             ( instructionNum++ + ": " ).padEnd( 4 ) + dent.join( "" ) +
             Object.values( node )
-                .map( ( e, i ) => i == 0 ? e : JSON.stringify( e ) )
+                .map( ( v, i ) => propToString( keys[ i ], v, i ) )
                 .join( " " )
         )
 

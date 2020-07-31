@@ -1,4 +1,5 @@
 import { switchFunc } from "./util"
+import ReferenceTracker from "./ReferenceTracker"
 
 export function compile( ast, globals: any ) {
     let program: any[] = []
@@ -9,24 +10,13 @@ export function compile( ast, globals: any ) {
         program.push( node )
     }
 
-    // === label/jump tracking =====
-    type jump = { target: number }
-    type label = { name: string, line: number, jumps: jump[] }
-    let labels: { [ key: string ]: label } = {}
-    let labelCounter = 0
-    function createLabel( prefix = "label" ) {
-        let result = { name: prefix + labelCounter++, line: -1, jumps: [] }
-        labels[ result.name ] = result
-        return result
-    }
-    function addLabel( label ) {
-        label.line = program.length
-    }
+    let labelTracker = new ReferenceTracker()
+    function createLabel() { return labelTracker.createReferent() }
+    function addLabel( label ) { labelTracker.setValue( label, program.length ) }
     function addJumpInstruction( instruction, label ) {
+        labelTracker.reference( label, instruction, "target" )
         addInstruction( instruction )
-        label.jumps.push( instruction )
     }
-    // =============================
 
     function compileBlock( node ) {
         addInstruction( { type: "PushScope", child: true } )
@@ -197,12 +187,7 @@ export function compile( ast, globals: any ) {
 
     compile( ast )
 
-    for ( let key in labels ) {
-        let label = labels[ key ]
-        for ( let jump of label.jumps ) {
-            jump.target = label.line
-        }
-    }
+    labelTracker.resolveAll()
 
     return program
 }

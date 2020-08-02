@@ -1,4 +1,4 @@
-import { switchFunc } from "./util"
+import { switchFunc } from "../util/util"
 import ReferenceTracker from "./ReferenceTracker"
 
 export function compile( ast, globals: any ) {
@@ -20,7 +20,8 @@ export function compile( ast, globals: any ) {
 
     function compileBlock( node ) {
         addInstruction( { type: "PushScope", child: true } )
-        node.body.forEach( compile )
+        line++
+        node.body.forEach( ( n ) => { compile( n ); line++ } )
         addInstruction( { type: "PopScope" } )
     }
 
@@ -30,18 +31,31 @@ export function compile( ast, globals: any ) {
         addJumpInstruction( { type: "Jump" }, bodyEndLabel )
 
         // Add function body
+        addInstruction( { type: "PushScope", child: true } )
         let pos = program.length
         for ( let param of node.params.reverse() )
-            addInstruction( { type: "Declare", name: param.name } )
+            addInstruction( { type: "AssignLocal", name: param.name } )
         let body = node.body.body
         body.forEach( compile )
         let last = body[ body.length - 1 ]
         if ( !last || last.type != "ReturnStatement" )
             compile( { type: "ReturnStatement" } )
+        addInstruction( { type: "PopScope" } )
 
         addLabel( bodyEndLabel )
 
         addInstruction( { type: "CreateClosure", address: pos } )
+    }
+
+    function compileCall( node, isNew ) {
+        node.arguments.forEach( compile )
+        compile( node.callee )
+        let argumentCount = node.arguments.length
+        addInstruction( {
+            type: "Call",
+            argumentCount,
+            isNew
+        } )
     }
 
     const compileHandler = switchFunc( {
@@ -51,20 +65,17 @@ export function compile( ast, globals: any ) {
         VariableDeclaration: node => {
             for ( let declaration of node.declarations ) {
                 compile( declaration.init )
-                addInstruction( { type: "Declare", name: declaration.id.name } )
+                addInstruction( { type: "AssignLocal", name: declaration.id.name } )
             }
-            line++
         },
 
         FunctionDeclaration: node => {
             compileFunctionExpression( node )
-            addInstruction( { type: "Declare", name: node.id.name } )
-            line++
+            addInstruction( { type: "AssignLocal", name: node.id.name } )
         },
 
         FunctionExpression: node => {
             compileFunctionExpression( node )
-            line++
         },
 
         ReturnStatement: node => {
@@ -85,18 +96,10 @@ export function compile( ast, globals: any ) {
         ExpressionStatement: node => {
             compile( node.expression )
             addInstruction( { type: "Pop", n: 1 } )
-            line++
         },
 
-        CallExpression: node => {
-            node.arguments.forEach( compile )
-            compile( node.callee )
-            let argumentCount = node.arguments.length
-            addInstruction( {
-                type: "Call",
-                argumentCount
-            } )
-        },
+        CallExpression: node => compileCall( node, false ),
+        NewExpression: node => compileCall( node, true ),
 
         MemberExpression: node => {
             compile( node.object )
@@ -131,28 +134,48 @@ export function compile( ast, globals: any ) {
         },
 
         ForStatement: node => {
+            let testLabel = createLabel()
+            let exitLabel = createLabel()
+
             addInstruction( { type: "PushScope", child: true } )
             compile( node.init )
-            let testPos = program.length
+
+            addLabel( testLabel )
             compile( node.test )
 
-            let exitJump = { type: "JumpFalse", target: 0 }
-            addInstruction( exitJump )
-            line++
+            addJumpInstruction( { type: "JumpFalse" }, exitLabel )
 
             compile( node.body )
             compile( node.update )
             addInstruction( { type: "Pop", n: 1 } )
-            line++
 
-            addInstruction( {
-                type: "Jump",
-                target: testPos
-            } )
-            exitJump.target = program.length
+            addJumpInstruction( { type: "Jump" }, testLabel )
+
+            addLabel( exitLabel )
             addInstruction( { type: "PopScope" } )
-            line++
         },
+
+        // ForOfStatement: node => {
+        //     let testLabel = createLabel()
+        //     let exitLabel = createLabel()
+
+        //     addInstruction( { type: "PushScope", child: true } )
+        //     compile( node.init )
+
+        //     addLabel( testLabel )
+        //     compile( node.test )
+
+        //     addJumpInstruction( { type: "JumpFalse" }, exitLabel )
+
+        //     compile( node.body )
+        //     compile( node.update )
+        //     addInstruction( { type: "Pop", n: 1 } )
+
+        //     addJumpInstruction( { type: "Jump" }, testLabel )
+
+        //     addLabel( exitLabel )
+        //     addInstruction( { type: "PopScope" } )
+        // },
 
         AssignmentExpression: node => {
             compile( node.right )
@@ -176,6 +199,23 @@ export function compile( ast, globals: any ) {
                 operator,
                 prefix: node.prefix
             } )
+        },
+
+        ArrayExpression: node => {
+            node.elements.forEach( compile )
+            addInstruction( { type: "CreateArray", n: node.elements.length } )
+        },
+
+        ObjectExpression: node => {
+            for ( let prop of node.properties ) {
+                let key = prop.key
+                if ( key.type == "Identifier" )
+                    addInstruction( { type: "Literal", value: key.name } )
+                else
+                    compile( key )
+                compile( prop.value )
+            }
+            addInstruction( { type: "CreateObject", n: node.properties.length } )
         },
 
         default: node => { throw new Error( "Missing compile handler for type: " + node.type ) }

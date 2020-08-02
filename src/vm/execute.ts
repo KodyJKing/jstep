@@ -1,4 +1,4 @@
-import { switchFunc, objectMap, splitTrim } from "./util"
+import { switchFunc, objectMap, splitTrim } from "../util/util"
 
 const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
 const binaryOperators = objectMap(
@@ -9,10 +9,10 @@ const assignmentOperators = objectMap(
     splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
     op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
 )
-const updateOperators = objectMap(
-    splitTrim( "++, --" ),
-    op => new Function( "object", "property", "object[property] " + op )
-)
+// const updateOperators = objectMap(
+//     splitTrim( "++, --" ),
+//     op => new Function( "object", "property", "object[property] " + op )
+// )
 
 const parentKey = ".parent"
 export function execute( program, globals: any ) {
@@ -30,6 +30,7 @@ export function execute( program, globals: any ) {
         if ( isChild )
             scope[ parentKey ] = prevScope
     }
+
     const lookup = name => {
         let scope = peekScope()
         while ( true ) {
@@ -55,11 +56,15 @@ export function execute( program, globals: any ) {
 
     const handler = switchFunc( {
         Literal: node => stack.push( node.value ),
+
         Call: node => {
             let callee = stack.pop()
             if ( typeof callee == "function" ) {
                 let args = popArgs( node.argumentCount )
-                stack.push( callee.call( null, ...args ) )
+                if ( node.isNew )
+                    stack.push( new callee( ...args ) )
+                else
+                    stack.push( callee.call( null, ...args ) )
             }
             else {
                 pushScope( false )
@@ -68,32 +73,39 @@ export function execute( program, globals: any ) {
                 instructionCounter = callee.address
             }
         },
+
         Return: node => {
             scopes.pop()
             instructionCounter = returnAddresses.pop() as number
         },
+
         CreateClosure: node => {
             let scope = peekScope()
             let address = node.address
             stack.push( { type: "Closure", scope, address } )
         },
+
         Member: node => {
             let property = stack.pop()
             let object = stack.pop()
             stack.push( object[ property ] )
         },
+
         Binary: node => {
             let b = stack.pop()
             let a = stack.pop()
             let op = binaryOperators[ node.operator ]
             stack.push( op( a, b ) )
         },
+
         Jump: node => { instructionCounter = node.target },
+
         JumpFalse: node => {
             let test = stack.pop()
             if ( !test )
                 instructionCounter = node.target
         },
+
         Assign: node => {
             let name = node.name
             let scope = lookupScope( name )
@@ -106,11 +118,32 @@ export function execute( program, globals: any ) {
                 result = scope[ name ]
             stack.push( result )
         },
-        Declare: node => { peekScope()[ node.name ] = stack.pop() },
+
+        AssignLocal: node => { peekScope()[ node.name ] = stack.pop() },
+
+        CreateArray: node => {
+            stack.push( popArgs( node.n ) )
+        },
+
+        CreateObject: node => {
+            let content = popArgs( node.n * 2 )
+            let result = {}
+            for ( let i = 0; i < node.n; i++ ) {
+                let key = content[ i * 2 ]
+                let value = content[ i * 2 + 1 ]
+                result[ key ] = value
+            }
+            stack.push( result )
+        },
+
         Pop: node => { stack.length -= node.n },
+
         Load: node => stack.push( lookup( node.name ) ),
+
         PushScope: node => pushScope( node.child ),
+
         PopScope: node => scopes.pop(),
+
         default: node => { throw new Error( "Missing execute handler for type: " + node.type ) }
     } )
 

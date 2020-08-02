@@ -1,38 +1,11 @@
 import test from "ava"
 import * as esprima from "esprima"
-import ionStringify from "./ionStringify"
-import inspect from "./inspect"
-import { compile } from "./compile"
-import { execute } from "./execute"
+import ionStringify from "./util/ionStringify"
+import { compile } from "./compiler/compile"
+import { execute } from "./vm/execute"
+import fs from "fs"
 
-let source = `
-    // Internal functions
-    // function print(a) { 
-    //     console.log(a) 
-    // }
-    // print( "Hello VM!" )
-
-    // For loops
-    // let j = 100
-    // for ( let i = 0; i < 10; i++ )
-    //     console.log( j-- )
-
-    // Ternary Expressions
-    // let b = 10 > 9
-    // let a = b ? 1 : 0
-    // console.log(a)
-
-    // Closures
-    function getClosure() {
-        let hidden = 42
-        return function closure() {
-            return hidden--
-        }
-    }
-    let counter = getClosure()
-    for (let i = 0; i < 10; i++)
-        console.log(counter())
-`
+let source = fs.readFileSync( "./test_src/source.js", { encoding: "utf-8" } )
 
 function printProgram( program ) {
     let dent: string[] = []
@@ -55,7 +28,7 @@ function printProgram( program ) {
         function propToString( k, v, i ) {
             if ( i == 0 ) return v
             if ( typeof v == "boolean" )
-                return v ? k : "!" + k
+                return `[${ k } = ${ v }]`
             return v
         }
 
@@ -80,7 +53,8 @@ test(
         let ast = esprima.parse( source )
         console.log( "AST: " + ionStringify( ast ).replace( /"/g, "" ) )
         console.log()
-        let globals = { console }
+        let print = ( arg ) => console.log( arg )
+        let globals = { print }
         let program = compile( ast, globals )
         // console.log( "Program: " + ionStringify( program ) )
         printProgram( program )

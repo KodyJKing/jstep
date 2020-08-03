@@ -5,6 +5,12 @@ export function switchFunc( cases ) {
     }
 }
 
+export function switchMap( discriminant, cases ) {
+    let caseHandler = cases[ discriminant ] || cases.default
+    if ( caseHandler ) return caseHandler()
+}
+
+
 export function objectMap<T>( args: ( string | number )[], map: ( arg: string | number ) => T ) {
     let result: { [ name: string ]: T } = {}
     for ( let arg of args )

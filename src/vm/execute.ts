@@ -15,13 +15,13 @@ const assignmentOperators = objectMap(
 // )
 
 const parentKey = ".parent"
-export function execute( program, api: any ) {
+export function execute( program ) {
     let stack: any[] = []
     let returnAddresses: number[] = []
     let instructionCounter = 0
     const popArgs = count => stack.splice( stack.length - count )
 
-    let scopes: any[] = [ {} ]
+    let scopes: any[] = [ { print: ( obj ) => console.log( obj ) } ]
     const peekScope = () => scopes[ scopes.length - 1 ]
     const pushScope = isChild => {
         let prevScope = peekScope()
@@ -74,14 +74,14 @@ export function execute( program, api: any ) {
             }
         },
 
-        CallExternal: node => {
-            let callee = api[ node.name ]
-            let args = popArgs( node.argumentCount )
-            if ( node.isNew )
-                stack.push( new callee( ...args ) )
-            else
-                stack.push( callee.call( null, ...args ) )
-        },
+        // CallExternal: node => {
+        //     let callee = api[ node.name ]
+        //     let args = popArgs( node.argumentCount )
+        //     if ( node.isNew )
+        //         stack.push( new callee( ...args ) )
+        //     else
+        //         stack.push( callee.call( null, ...args ) )
+        // },
 
         Return: node => {
             scopes.pop()
@@ -149,9 +149,11 @@ export function execute( program, api: any ) {
 
         Load: node => stack.push( lookup( node.name ) ),
 
-        PushScope: node => pushScope( node.child ),
+        PushScope: node => pushScope( true ),
 
         PopScope: node => scopes.pop(),
+
+        Halt: node => instructionCounter = program.length,
 
         default: node => { throw new Error( "Missing execute handler for type: " + node.type ) }
     } )

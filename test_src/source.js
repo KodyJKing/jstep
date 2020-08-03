@@ -1,5 +1,5 @@
-// Api wrappers
-print( "Hello VM!" )
+// // Api wrappers
+// print( "Hello VM!" )
 
 // // For loops
 // let j = 100
@@ -11,16 +11,16 @@ print( "Hello VM!" )
 // let a = b ? 1 : 0
 // print(a)
 
-// // Closures
-// function getClosure() {
-//     let hidden = 42
-//     return function closure() {
-//         return hidden--
-//     }
-// }
-// let counter = getClosure()
-// for ( let i = 0; i < 10; i++ )
-//     print( counter() )
+// Closures
+function getClosure() {
+    let hidden = 42
+    return function closure() {
+        return hidden--
+    }
+}
+let counter = getClosure()
+for ( let i = 0; i < 10; i++ )
+    print( counter() )
 
 // For of
 // let arr = [ 1, 2, 3, 4 ]

@@ -1,14 +1,11 @@
-import { switchFunc } from "../util/util"
+import { switchFunc, switchMap } from "../util/util"
 import ReferenceTracker from "./ReferenceTracker"
 
-export function compile( ast, api: any ) {
+export function compile( ast ) {
     let program: any[] = []
-    let line = 0
+    let defferedSteps: ( Function )[] = []
 
-    const addInstruction = ( node ) => {
-        node.line = line
-        program.push( node )
-    }
+    const addInstruction = ( node ) => { program.push( node ) }
 
     let labelTracker = new ReferenceTracker()
     function createLabel() { return labelTracker.createReferent() }
@@ -19,62 +16,50 @@ export function compile( ast, api: any ) {
     }
 
     function compileBlock( node ) {
-        addInstruction( { type: "PushScope", child: true } )
-        line++
-        node.body.forEach( ( n ) => { compile( n ); line++ } )
+        addInstruction( { type: "PushScope" } )
+        node.body.forEach( compileNode )
         addInstruction( { type: "PopScope" } )
     }
 
     function compileFunctionExpression( node ) {
-        // Jump past body declaration.
-        let bodyEndLabel = createLabel()
-        addJumpInstruction( { type: "Jump" }, bodyEndLabel )
+        let bodyLabel = createLabel()
 
-        // Add function body
-        addInstruction( { type: "PushScope", child: true } )
-        let pos = program.length
-        for ( let param of node.params.reverse() )
-            addInstruction( { type: "AssignLocal", name: param.name } )
-        let body = node.body.body
-        body.forEach( compile )
-        let last = body[ body.length - 1 ]
-        if ( !last || last.type != "ReturnStatement" )
-            compile( { type: "ReturnStatement" } )
-        addInstruction( { type: "PopScope" } )
+        // Add the function body later, we don't want the body inlined.
+        defferedSteps.push( () => {
+            addLabel( bodyLabel )
+            for ( let param of node.params.reverse() )
+                addInstruction( { type: "AssignLocal", name: param.name } )
+            let body = node.body.body
+            body.forEach( compileNode )
+            let last = body[ body.length - 1 ]
+            if ( !last || last.type != "ReturnStatement" )
+                compileNode( { type: "ReturnStatement" } )
+        } )
 
-        addLabel( bodyEndLabel )
-
-        addInstruction( { type: "CreateClosure", address: pos } )
+        let closureInstruction = { type: "CreateClosure" }
+        labelTracker.reference( bodyLabel, closureInstruction, "address" )
+        addInstruction( closureInstruction )
     }
 
     function compileCall( node, isNew ) {
-        node.arguments.forEach( compile )
+        node.arguments.forEach( compileNode )
         let argumentCount = node.arguments.length
-        let callee = node.callee
-        if ( callee.type == "Identifier" && api.hasOwnProperty( callee.name ) ) {
-            let name = callee.name
-            addInstruction( {
-                type: "CallExternal",
-                argumentCount,
-                name
-            } )
-        } else {
-            compile( callee )
-            addInstruction( {
-                type: "Call",
-                argumentCount,
-                isNew
-            } )
-        }
+        compileNode( node.callee )
+        addInstruction( {
+            type: "Call",
+            argumentCount,
+            isNew
+        } )
     }
 
+    function compileNode( node ) { compileHandler( node.type, node ) }
     const compileHandler = switchFunc( {
         Program: compileBlock,
         BlockStatement: compileBlock,
 
         VariableDeclaration: node => {
             for ( let declaration of node.declarations ) {
-                compile( declaration.init )
+                compileNode( declaration.init )
                 addInstruction( { type: "AssignLocal", name: declaration.id.name } )
             }
         },
@@ -90,9 +75,9 @@ export function compile( ast, api: any ) {
 
         ReturnStatement: node => {
             if ( node.argument )
-                compile( node.argument )
+                compileNode( node.argument )
             else
-                compile( { type: "Literal", value: undefined } )
+                compileNode( { type: "Literal", value: undefined } )
             addInstruction( { type: "Return" } )
         },
 
@@ -104,7 +89,7 @@ export function compile( ast, api: any ) {
         } ),
 
         ExpressionStatement: node => {
-            compile( node.expression )
+            compileNode( node.expression )
             addInstruction( { type: "Pop", n: 1 } )
         },
 
@@ -112,19 +97,19 @@ export function compile( ast, api: any ) {
         NewExpression: node => compileCall( node, true ),
 
         MemberExpression: node => {
-            compile( node.object )
+            compileNode( node.object )
             if ( !node.computed )
-                compile( { type: "Literal", value: node.property.name } )
+                compileNode( { type: "Literal", value: node.property.name } )
             else
-                compile( node.property )
+                compileNode( node.property )
             addInstruction( {
                 type: "Member"
             } )
         },
 
         BinaryExpression: node => {
-            compile( node.left )
-            compile( node.right )
+            compileNode( node.left )
+            compileNode( node.right )
             addInstruction( {
                 type: "Binary",
                 operator: node.operator
@@ -134,12 +119,12 @@ export function compile( ast, api: any ) {
         ConditionalExpression: node => {
             let alternateLabel = createLabel()
             let endLabel = createLabel()
-            compile( node.test )
+            compileNode( node.test )
             addJumpInstruction( { type: "JumpFalse" }, alternateLabel )
-            compile( node.consequent )
+            compileNode( node.consequent )
             addJumpInstruction( { type: "Jump" }, endLabel )
             addLabel( alternateLabel )
-            compile( node.alternate )
+            compileNode( node.alternate )
             addLabel( endLabel )
         },
 
@@ -147,16 +132,16 @@ export function compile( ast, api: any ) {
             let testLabel = createLabel()
             let exitLabel = createLabel()
 
-            addInstruction( { type: "PushScope", child: true } )
-            compile( node.init )
+            addInstruction( { type: "PushScope" } )
+            compileNode( node.init )
 
             addLabel( testLabel )
-            compile( node.test )
+            compileNode( node.test )
 
             addJumpInstruction( { type: "JumpFalse" }, exitLabel )
 
-            compile( node.body )
-            compile( node.update )
+            compileNode( node.body )
+            compileNode( node.update )
             addInstruction( { type: "Pop", n: 1 } )
 
             addJumpInstruction( { type: "Jump" }, testLabel )
@@ -166,7 +151,7 @@ export function compile( ast, api: any ) {
         },
 
         AssignmentExpression: node => {
-            compile( node.right )
+            compileNode( node.right )
             addInstruction( {
                 type: "Assign",
                 name: node.left.name,
@@ -177,7 +162,7 @@ export function compile( ast, api: any ) {
 
         UpdateExpression: node => {
             let operator = node.operator[ 0 ] + "="
-            compile( {
+            compileNode( {
                 type: "AssignmentExpression",
                 left: node.argument,
                 right: {
@@ -190,7 +175,7 @@ export function compile( ast, api: any ) {
         },
 
         ArrayExpression: node => {
-            node.elements.forEach( compile )
+            node.elements.forEach( compileNode )
             addInstruction( { type: "CreateArray", n: node.elements.length } )
         },
 
@@ -200,8 +185,8 @@ export function compile( ast, api: any ) {
                 if ( key.type == "Identifier" )
                     addInstruction( { type: "Literal", value: key.name } )
                 else
-                    compile( key )
-                compile( prop.value )
+                    compileNode( key )
+                compileNode( prop.value )
             }
             addInstruction( { type: "CreateObject", n: node.properties.length } )
         },
@@ -209,30 +194,10 @@ export function compile( ast, api: any ) {
         default: node => { throw new Error( "Missing compile handler for type: " + node.type ) }
     } )
 
-    function compile( node ) {
-        compileHandler( node.type, node )
-    }
-
-    /* Add api wrappers. */ {
-        let endLabel = createLabel()
-        addJumpInstruction( { type: "Jump" }, endLabel )
-        for ( let name in api ) {
-            let func = api[ name ]
-            let argumentCount = func.length
-            addInstruction( {
-                type: "CallExternal",
-                argumentCount,
-                name
-            } )
-            addInstruction( {
-                type: "AssignLocal",
-                name
-            } )
-        }
-        addLabel( endLabel )
-    }
-
-    compile( ast )
+    compileNode( ast )
+    addInstruction( { type: "Halt" } )
+    while ( defferedSteps.length > 0 )
+        ( defferedSteps.pop() as () => void )()
 
     labelTracker.resolveAll()
 

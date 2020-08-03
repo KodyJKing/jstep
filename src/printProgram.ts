@@ -1,18 +1,8 @@
 export function printProgram( program ) {
     let dent: string[] = []
     let lines: string[] = []
-    let lastLineNum = 0
     let instructionNum = 0
-    let toggle = true
     for ( let node of program ) {
-        let line = node.line
-        delete node.line
-        if ( lastLineNum != line ) {
-            lastLineNum = line
-            lines.push( "" )
-            toggle = !toggle
-        }
-
         if ( node.type == "PopScope" )
             dent.pop()
 

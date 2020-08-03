@@ -1,18 +1,15 @@
-// // Internal functions
-// function print(a) {
-//     console.log(a) 
-// }
-// print( "Hello VM!" )
+// Api wrappers
+print( "Hello VM!" )
 
 // // For loops
 // let j = 100
 // for ( let i = 0; i < 10; i++ )
-//     console.log( j-- )
+//     print( j-- )
 
 // // Ternary Expressions
 // let b = 10 > 9
 // let a = b ? 1 : 0
-// console.log(a)
+// print(a)
 
 // // Closures
 // function getClosure() {
@@ -23,12 +20,12 @@
 // }
 // let counter = getClosure()
 // for ( let i = 0; i < 10; i++ )
-//     console.log( counter() )
+//     print( counter() )
 
 // For of
 // let arr = [ 1, 2, 3, 4 ]
 // for ( let e of arr )
-//     console.log( e )
+//     print( e )
 
-let foo = function() { print( "Hey!" ) }
-print( foo )
+// let foo = function() { print( "Hey!" ) }
+// print( foo )

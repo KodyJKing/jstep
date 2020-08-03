@@ -15,13 +15,13 @@ const assignmentOperators = objectMap(
 // )
 
 const parentKey = ".parent"
-export function execute( program, globals: any ) {
+export function execute( program, api: any ) {
     let stack: any[] = []
     let returnAddresses: number[] = []
     let instructionCounter = 0
     const popArgs = count => stack.splice( stack.length - count )
 
-    let scopes: any[] = [ globals ]
+    let scopes: any[] = [ {} ]
     const peekScope = () => scopes[ scopes.length - 1 ]
     const pushScope = isChild => {
         let prevScope = peekScope()
@@ -72,6 +72,15 @@ export function execute( program, globals: any ) {
                 returnAddresses.push( instructionCounter )
                 instructionCounter = callee.address
             }
+        },
+
+        CallExternal: node => {
+            let callee = api[ node.name ]
+            let args = popArgs( node.argumentCount )
+            if ( node.isNew )
+                stack.push( new callee( ...args ) )
+            else
+                stack.push( callee.call( null, ...args ) )
         },
 
         Return: node => {

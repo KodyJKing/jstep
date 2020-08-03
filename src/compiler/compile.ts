@@ -1,7 +1,7 @@
 import { switchFunc } from "../util/util"
 import ReferenceTracker from "./ReferenceTracker"
 
-export function compile( ast, globals: any ) {
+export function compile( ast, api: any ) {
     let program: any[] = []
     let line = 0
 
@@ -49,13 +49,23 @@ export function compile( ast, globals: any ) {
 
     function compileCall( node, isNew ) {
         node.arguments.forEach( compile )
-        compile( node.callee )
         let argumentCount = node.arguments.length
-        addInstruction( {
-            type: "Call",
-            argumentCount,
-            isNew
-        } )
+        let callee = node.callee
+        if ( callee.type == "Identifier" && api.hasOwnProperty( callee.name ) ) {
+            let name = callee.name
+            addInstruction( {
+                type: "CallExternal",
+                argumentCount,
+                name
+            } )
+        } else {
+            compile( callee )
+            addInstruction( {
+                type: "Call",
+                argumentCount,
+                isNew
+            } )
+        }
     }
 
     const compileHandler = switchFunc( {
@@ -155,28 +165,6 @@ export function compile( ast, globals: any ) {
             addInstruction( { type: "PopScope" } )
         },
 
-        // ForOfStatement: node => {
-        //     let testLabel = createLabel()
-        //     let exitLabel = createLabel()
-
-        //     addInstruction( { type: "PushScope", child: true } )
-        //     compile( node.init )
-
-        //     addLabel( testLabel )
-        //     compile( node.test )
-
-        //     addJumpInstruction( { type: "JumpFalse" }, exitLabel )
-
-        //     compile( node.body )
-        //     compile( node.update )
-        //     addInstruction( { type: "Pop", n: 1 } )
-
-        //     addJumpInstruction( { type: "Jump" }, testLabel )
-
-        //     addLabel( exitLabel )
-        //     addInstruction( { type: "PopScope" } )
-        // },
-
         AssignmentExpression: node => {
             compile( node.right )
             addInstruction( {
@@ -223,6 +211,25 @@ export function compile( ast, globals: any ) {
 
     function compile( node ) {
         compileHandler( node.type, node )
+    }
+
+    /* Add api wrappers. */ {
+        let endLabel = createLabel()
+        addJumpInstruction( { type: "Jump" }, endLabel )
+        for ( let name in api ) {
+            let func = api[ name ]
+            let argumentCount = func.length
+            addInstruction( {
+                type: "CallExternal",
+                argumentCount,
+                name
+            } )
+            addInstruction( {
+                type: "AssignLocal",
+                name
+            } )
+        }
+        addLabel( endLabel )
     }
 
     compile( ast )

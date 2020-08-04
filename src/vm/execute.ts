@@ -1,22 +1,5 @@
 import { switchFunc, objectMap, splitTrim } from "../util/util"
 
-const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
-
-const binaryOperators = objectMap(
-    splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
-    op => new Function( "a", "b", " return a " + op + " b " )
-)
-
-const assignmentOperators = objectMap(
-    splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
-    op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
-)
-
-// const updateOperators = objectMap(
-//     splitTrim( "++, --" ),
-//     op => new Function( "object", "property", "object[property] " + op )
-// )
-
 const parentKey = ".parent"
 export function execute( program ) {
     let stack: any[] = []
@@ -64,10 +47,7 @@ export function execute( program ) {
             let callee = stack.pop()
             if ( typeof callee == "function" ) {
                 let args = popArgs( node.argumentCount )
-                if ( node.isNew )
-                    stack.push( new callee( ...args ) )
-                else
-                    stack.push( callee.call( null, ...args ) )
+                stack.push( callee.call( null, ...args ) )
             }
             else {
                 pushScope( false )
@@ -76,15 +56,6 @@ export function execute( program ) {
                 instructionCounter = callee.address
             }
         },
-
-        // CallExternal: node => {
-        //     let callee = api[ node.name ]
-        //     let args = popArgs( node.argumentCount )
-        //     if ( node.isNew )
-        //         stack.push( new callee( ...args ) )
-        //     else
-        //         stack.push( callee.call( null, ...args ) )
-        // },
 
         Return: node => {
             scopes.pop()
@@ -165,3 +136,15 @@ export function execute( program ) {
         handler( node.type, node )
     }
 }
+
+const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
+
+const binaryOperators = objectMap(
+    splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
+    op => new Function( "a", "b", " return a " + op + " b " )
+)
+
+const assignmentOperators = objectMap(
+    splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
+    op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
+)

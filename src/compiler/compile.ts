@@ -41,17 +41,6 @@ export function compile( ast ) {
         addInstruction( closureInstruction )
     }
 
-    function compileCall( node, isNew ) {
-        node.arguments.forEach( compileNode )
-        let argumentCount = node.arguments.length
-        compileNode( node.callee )
-        addInstruction( {
-            type: "Call",
-            argumentCount,
-            isNew
-        } )
-    }
-
     function compileNode( node ) { compileHandler( node.type, node ) }
     const compileHandler = switchFunc( {
         Program: compileBlock,
@@ -93,8 +82,15 @@ export function compile( ast ) {
             addInstruction( { type: "Pop", n: 1 } )
         },
 
-        CallExpression: node => compileCall( node, false ),
-        NewExpression: node => compileCall( node, true ),
+        CallExpression: node => {
+            node.arguments.forEach( compileNode )
+            let argumentCount = node.arguments.length
+            compileNode( node.callee )
+            addInstruction( {
+                type: "Call",
+                argumentCount
+            } )
+        },
 
         MemberExpression: node => {
             compileNode( node.object )

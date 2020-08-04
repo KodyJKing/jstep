@@ -1,5 +1,5 @@
-import VM from "./VM"
-import { objectMap, splitTrim } from "../util/util"
+import VM from "./vm/VM"
+import { objectMap, splitTrim } from "./util/util"
 
 type Instruction = ( vm: VM ) => void
 const Instructions: { [ key: string ]: Instruction } = {

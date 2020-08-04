@@ -10,10 +10,10 @@ export default function ionStringify( obj, dentPrime = "  " ) {
             let i = 0
             if ( Array.isArray( obj ) ) {
                 result.push( "[ " )
-                if ( i++ > 0 )
-                    result.push( "," )
-                for ( let e of obj )
+                for ( let e of obj ) {
+                    if ( i++ > 0 ) result.push( "," )
                     internal( e )
+                }
                 result.push( " ]" )
             } else {
                 result.push( "{ " )

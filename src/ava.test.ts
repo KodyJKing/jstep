@@ -22,11 +22,12 @@ test(
 
         startDivider( "Compiled Program" )
         printProgram( program )
+        // console.log( "Program: " + ionStringify( program ).replace( /"/g, "" ) )
         endDivider()
 
-        // startDivider( "Program output" )
-        // execute( program )
-        // endDivider()
+        startDivider( "Program output" )
+        execute( program )
+        endDivider()
 
         t.pass()
     }

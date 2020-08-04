@@ -11,7 +11,7 @@ export function compile( ast ) {
     function createLabel() { return labelTracker.createReferent() }
     function addLabel( label ) { labelTracker.setValue( label, program.length ) }
     function addJumpInstruction( instruction, label ) {
-        labelTracker.reference( label, instruction, "target" )
+        labelTracker.reference( label, value => instruction.target = value )
         addInstruction( instruction )
     }
 
@@ -36,8 +36,8 @@ export function compile( ast ) {
                 compileNode( { type: "ReturnStatement" } )
         } )
 
-        let closureInstruction = { type: "CreateClosure" }
-        labelTracker.reference( bodyLabel, closureInstruction, "address" )
+        let closureInstruction = { type: "CreateClosure", address: -1 }
+        labelTracker.reference( bodyLabel, value => closureInstruction.address = value )
         addInstruction( closureInstruction )
     }
 

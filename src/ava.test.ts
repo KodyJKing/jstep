@@ -24,9 +24,9 @@ test(
         printProgram( program )
         endDivider()
 
-        startDivider( "Program output" )
-        execute( program )
-        endDivider()
+        // startDivider( "Program output" )
+        // execute( program )
+        // endDivider()
 
         t.pass()
     }

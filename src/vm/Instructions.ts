@@ -1,17 +1,8 @@
 import VM from "./VM"
 import { objectMap, splitTrim } from "../util/util"
 
-const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
-const binaryOperators = objectMap(
-    splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
-    op => new Function( "a", "b", " return a " + op + " b " ) )
-const assignmentOperators = objectMap(
-    splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
-    op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" ) )
-
-type Instruction = ( ( vm: VM ) => void ) & { code: number }
-
-const Instructions = {
+type Instruction = ( vm: VM ) => void
+const Instructions: { [ key: string ]: Instruction } = {
     // (@value) => any
     Literal: ( vm: VM ) => vm.push( vm.fetch() ),
 
@@ -122,13 +113,14 @@ const Instructions = {
     Halt: ( vm: VM ) => vm.instructionCounter = vm.program.length
 }
 
-let instructions: Instruction[] = []
-for ( let name in Instructions ) {
-    let func = Instructions[ name ]
-    let code = instructions.length
-    func.code = code
-    instructions[ code ] = func
-}
+export default Instructions
 
-export default ( Instructions as unknown ) as { [ name: string ]: Instruction }
-export function getInstruction( code: number ) { return instructions[ code ] }
+const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
+
+const binaryOperators = objectMap(
+    splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
+    op => new Function( "a", "b", " return a " + op + " b " ) )
+
+const assignmentOperators = objectMap(
+    splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
+    op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" ) )

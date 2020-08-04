@@ -151,13 +151,18 @@ export function compile( ast ) {
         },
 
         AssignmentExpression: node => {
+            let loadInstruction = {
+                type: "Load",
+                name: node.left.name
+            }
+            if ( !node.prefix ) addInstruction( loadInstruction )
             compileNode( node.right )
             addInstruction( {
                 type: "Assign",
                 name: node.left.name,
-                operator: node.operator,
-                prefix: node.prefix
+                operator: node.operator
             } )
+            if ( node.prefix ) addInstruction( loadInstruction )
         },
 
         UpdateExpression: node => {

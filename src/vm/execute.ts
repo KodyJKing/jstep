@@ -1,14 +1,17 @@
 import { switchFunc, objectMap, splitTrim } from "../util/util"
 
 const unaryOperators = objectMap( splitTrim( "!, ~" ), op => new Function( "a", " return " + op + "a " ) )
+
 const binaryOperators = objectMap(
     splitTrim( ">, <, +, -, ==, *, /, %, ^, |, &, <<, >>" ),
     op => new Function( "a", "b", " return a " + op + " b " )
 )
+
 const assignmentOperators = objectMap(
     splitTrim( "=, +=, -=, *=, /=, %=, ^=, |=, &=, <<=, >>=" ),
     op => new Function( "object", "property", "rightOperand", "object[property] " + op + " rightOperand" )
 )
+
 // const updateOperators = objectMap(
 //     splitTrim( "++, --" ),
 //     op => new Function( "object", "property", "object[property] " + op )
@@ -118,14 +121,8 @@ export function execute( program ) {
         Assign: node => {
             let name = node.name
             let scope = lookupScope( name )
-            let result
-            if ( !node.prefix )
-                result = scope[ name ]
             if ( scope != null )
                 assignmentOperators[ node.operator ]( scope, name, stack.pop() )
-            if ( node.prefix )
-                result = scope[ name ]
-            stack.push( result )
         },
 
         AssignLocal: node => { peekScope()[ node.name ] = stack.pop() },

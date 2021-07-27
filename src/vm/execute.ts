@@ -18,13 +18,13 @@ const assignmentOperators = objectMap(
 // )
 
 const parentKey = ".parent"
-export function execute( program ) {
+export function execute( program, apis ) {
     let stack: any[] = []
     let returnAddresses: number[] = []
     let instructionCounter = 0
     const popArgs = count => stack.splice( stack.length - count )
 
-    let scopes: any[] = [ { print: ( obj ) => console.log( obj ) } ]
+    let scopes: any[] = [ { print: ( obj ) => console.log( obj ), Map } ]
     const peekScope = () => scopes[ scopes.length - 1 ]
     const pushScope = isChild => {
         let prevScope = peekScope()
@@ -64,10 +64,7 @@ export function execute( program ) {
             let callee = stack.pop()
             if ( typeof callee == "function" ) {
                 let args = popArgs( node.argumentCount )
-                if ( node.isNew )
-                    stack.push( new callee( ...args ) )
-                else
-                    stack.push( callee.call( null, ...args ) )
+                stack.push( callee.call( null, ...args ) )
             }
             else {
                 pushScope( false )
@@ -77,14 +74,20 @@ export function execute( program ) {
             }
         },
 
-        // CallExternal: node => {
-        //     let callee = api[ node.name ]
-        //     let args = popArgs( node.argumentCount )
-        //     if ( node.isNew )
-        //         stack.push( new callee( ...args ) )
-        //     else
-        //         stack.push( callee.call( null, ...args ) )
-        // },
+        New: node => {
+            let callee = stack.pop()
+            let args = popArgs( node.argumentCount )
+            stack.push( new callee( args ) )
+        },
+
+        CallExternal: node => {
+            let callee = apis[ node.name ]
+            let args = popArgs( node.argumentCount )
+            if ( node.isNew )
+                stack.push( new callee( ...args ) )
+            else
+                stack.push( callee.call( null, ...args ) )
+        },
 
         Return: node => {
             scopes.pop()
@@ -101,6 +104,14 @@ export function execute( program ) {
             let property = stack.pop()
             let object = stack.pop()
             stack.push( object[ property ] )
+        },
+
+        CallMember: node => {
+            let property = stack.pop()
+            let reciever = stack.pop()
+            let callee = reciever[ property ]
+            let args = popArgs( node.argumentCount )
+            stack.push( callee.call( reciever, ...args ) )
         },
 
         Binary: node => {

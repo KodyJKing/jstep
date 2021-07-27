@@ -1,7 +1,7 @@
 import { switchFunc, switchMap } from "../util/util"
 import ReferenceTracker from "./ReferenceTracker"
 
-export function compile( ast ) {
+export function compile( ast, apis ) {
     let program: any[] = []
     let defferedSteps: ( Function )[] = []
 
@@ -39,17 +39,6 @@ export function compile( ast ) {
         let closureInstruction = { type: "CreateClosure" }
         labelTracker.reference( bodyLabel, closureInstruction, "address" )
         addInstruction( closureInstruction )
-    }
-
-    function compileCall( node, isNew ) {
-        node.arguments.forEach( compileNode )
-        let argumentCount = node.arguments.length
-        compileNode( node.callee )
-        addInstruction( {
-            type: "Call",
-            argumentCount,
-            isNew
-        } )
     }
 
     function compileNode( node ) { compileHandler( node.type, node ) }
@@ -93,8 +82,38 @@ export function compile( ast ) {
             addInstruction( { type: "Pop", n: 1 } )
         },
 
-        CallExpression: node => compileCall( node, false ),
-        NewExpression: node => compileCall( node, true ),
+        CallExpression: node => {
+            node.arguments.forEach( compileNode )
+            let argumentCount = node.arguments.length
+            let callee = node.callee
+            if ( callee.type == "MemberExpression" ) {
+                compileNode( callee.object )
+                if ( !callee.computed )
+                    compileNode( { type: "Literal", value: callee.property.name } )
+                else
+                    compileNode( callee.property )
+                addInstruction( {
+                    type: "CallMember",
+                    argumentCount
+                } )
+            } else {
+                compileNode( node.callee )
+                addInstruction( {
+                    type: "Call",
+                    argumentCount
+                } )
+            }
+        },
+
+        NewExpression: node => {
+            node.arguments.forEach( compileNode )
+            let argumentCount = node.arguments.length
+            compileNode( node.callee )
+            addInstruction( {
+                type: "New",
+                argumentCount
+            } )
+        },
 
         MemberExpression: node => {
             compileNode( node.object )
@@ -198,6 +217,24 @@ export function compile( ast ) {
 
         default: node => { throw new Error( "Missing compile handler for type: " + node.type ) }
     } )
+
+    // Create API wrapper functions.
+    for ( let key in apis ) {
+        let label = createLabel()
+        let closureInstruction = { type: "CreateClosure" }
+        labelTracker.reference( label, closureInstruction, "address" )
+        addInstruction( closureInstruction )
+        addInstruction( { type: "AssignLocal", name: key } )
+        defferedSteps.push(
+            () => {
+                let api = apis[ key ]
+                let arity = api.length
+                addLabel( label )
+                addInstruction( { type: "CallExternal", name: key, argumentCount: arity } )
+                addInstruction( { type: "Return" } )
+            }
+        )
+    }
 
     compileNode( ast )
     addInstruction( { type: "Halt" } )

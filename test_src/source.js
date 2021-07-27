@@ -1,5 +1,5 @@
 // // Api wrappers
-// print( "Hello VM!" )
+// log( "Hello VM!" )
 
 // // For loops
 // let j = 100
@@ -20,7 +20,7 @@ function getClosure() {
 }
 let counter = getClosure()
 for ( let i = 0; i < 10; i++ )
-    print( counter() )
+    log( counter() )
 
 // For of
 // let arr = [ 1, 2, 3, 4 ]
@@ -29,3 +29,8 @@ for ( let i = 0; i < 10; i++ )
 
 // let foo = function() { print( "Hey!" ) }
 // print( foo )
+
+// let map = new Map()
+// let a = { map }
+// a[ "ma" + "p" ].set( "a", "b" )
+// print( map )

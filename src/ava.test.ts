@@ -17,7 +17,9 @@ test(
         console.log( ionStringify( ast ).replace( /"/g, "" ) )
         endDivider()
 
-        let program = compile( ast )
+        let apis = { log: o => console.log( o ) }
+
+        let program = compile( ast, apis )
         // console.log( "Program: " + ionStringify( program ) )
 
         startDivider( "Compiled Program" )
@@ -25,7 +27,7 @@ test(
         endDivider()
 
         startDivider( "Program output" )
-        execute( program )
+        execute( program, apis )
         endDivider()
 
         t.pass()
